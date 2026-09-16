@@ -148,6 +148,9 @@
   .dot{width:7px; height:7px; border-radius:50%; background:var(--ink-muted); flex-shrink:0;}
   .dot.ok{background:var(--forest);}
   .dot.off{background:var(--danger);}
+  .logout-btn{display:inline-flex; align-items:center; gap:5px; margin-left:auto; flex-shrink:0; padding:5px 11px; border-radius:999px; border:1.5px solid var(--border-strong); background:var(--surface); color:var(--ink-muted); font-weight:600; font-size:0.72rem; cursor:pointer; transition:background 0.15s ease, color 0.15s ease, border-color 0.15s ease;}
+  .logout-btn:hover{background:var(--danger-soft); border-color:var(--danger); color:var(--danger);}
+  .logout-btn svg{width:13px; height:13px; flex-shrink:0;}
 
   /* ---------- main ---------- */
   .main{flex:1; min-width:0; display:flex; flex-direction:column;}
@@ -243,7 +246,7 @@
   table.roster tr:last-child td{border-bottom:none;}
 
   .grade-btn-row{display:flex; gap:5px;}
-  .grade-btn{width:34px; height:32px; border-radius:7px; border:1.5px solid var(--border-strong); background:var(--surface); color:var(--ink); font-weight:700; cursor:pointer; font-family:var(--font-mono);}
+  .grade-btn{min-width:34px; height:32px; padding:0 6px; border-radius:7px; border:1.5px solid var(--border-strong); background:var(--surface); color:var(--ink); font-weight:700; cursor:pointer; font-family:var(--font-mono);}
   .grade-btn:hover{border-color:var(--forest);}
   .grade-btn.picked{color:#fff; border-color:transparent;}
   .grade-btn.abs{width:auto; padding:0 9px; font-family:var(--font-body); font-weight:600; font-size:0.75rem;}
@@ -429,7 +432,7 @@
     </div>
     <div class="subnote warn" id="loginError" hidden style="margin-bottom:10px;">Benutzername oder Passwort ist falsch.</div>
     <button class="btn primary" type="submit" id="loginSubmitBtn" style="width:100%; justify-content:center;">Anmelden</button>
-    <div style="text-align:center; margin-top:10px; font-size:0.62rem; color:var(--ink-muted); opacity:0.7;">Build 2026-09-16-B</div>
+    <div style="text-align:center; margin-top:10px; font-size:0.62rem; color:var(--ink-muted); opacity:0.7;">Build 2026-09-16-C</div>
   </form>
 </div>
 
@@ -489,12 +492,15 @@
     <div class="sidebar-foot">
       <span class="dot" id="statusDot"></span>
       <span id="statusText">Verbinde…</span>
-      <button class="linklike" id="logoutBtn" type="button" style="margin-left:auto; font-size:0.68rem;">Abmelden</button>
+      <button class="logout-btn" id="logoutBtn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        <span>Abmelden</span>
+      </button>
     </div>
     <!-- Gut sichtbare Versionskennung, damit sich beim Fehlersuchen sofort und ohne
          Entwickler-Werkzeuge prüfen lässt, ob wirklich die zuletzt bereitgestellte Datei live
          ist (z.B. nach einem Upload zu GitHub Pages/Netlify) — einfach vorlesen/kopieren. -->
-    <div style="padding:2px 6px 6px; font-size:0.62rem; color:var(--ink-muted); opacity:0.7;">Build 2026-09-16-B</div>
+    <div style="padding:2px 6px 6px; font-size:0.62rem; color:var(--ink-muted); opacity:0.7;">Build 2026-09-16-C</div>
   </aside>
 
   <main class="main">
@@ -622,8 +628,10 @@
     var t = fehlerThresholds();
     if(f<=t[0]) return 1; if(f<=t[1]) return 2; if(f<=t[2]) return 3; if(f<=t[3]) return 4; return 5;
   }
-  // Symbolkatalog: +, o, - sowie ∀ (entschuldigt / nicht bewertbar, keine Note).
-  // Die Notenzuordnung für +/o/- ist global in Einstellungen editierbar; ∀ bleibt fix ohne Note.
+  // Symbolkatalog 3-fach: +, o, - sowie ∀ (entschuldigt / nicht bewertbar, keine Note).
+  // Symbolkatalog 5-fach: ++, +, o, -, -- sowie ebenfalls ∀. Beide Kataloge sind eigenständige
+  // Beurteilungskriterien (Kriterienschlüssel "symbol" bzw. "symbol5") mit eigener, global in
+  // Einstellungen editierbarer Notenzuordnung; ∀ bleibt bei beiden fix ohne Note.
   var DEFAULT_SYMBOL_GRADES = {"+":1, "o":3, "-":5};
   var SYMBOL_LABELS = {
     "+": "Sehr gut / gut erreicht",
@@ -631,28 +639,53 @@
     "-": "Nicht erreicht",
     "∀": "Entschuldigt / nicht bewertbar"
   };
-  function symbolGrades(){
-    var sg = state.settings && state.settings.symbolGrades;
-    return (sg && typeof sg==="object") ? sg : DEFAULT_SYMBOL_GRADES;
+  var DEFAULT_SYMBOL5_GRADES = {"++":1, "+":2, "o":3, "-":4, "--":5};
+  var SYMBOL5_LABELS = {
+    "++": "Sehr gut erreicht",
+    "+": "Gut erreicht",
+    "o": "Teilweise erreicht",
+    "-": "Kaum erreicht",
+    "--": "Nicht erreicht",
+    "∀": "Entschuldigt / nicht bewertbar"
+  };
+  // criterion: "symbol" (3-fach, Standard) oder "symbol5" (5-fach) — legt fest, welches der
+  // beiden Symbolsets samt zugehöriger Notenzuordnung verwendet wird. Ohne Angabe (z.B. bei
+  // älteren Aufrufstellen) wird weiterhin der 3-fach-Katalog verwendet.
+  function symbolGrades(criterion){
+    var key = criterion==="symbol5" ? "symbol5Grades" : "symbolGrades";
+    var def = criterion==="symbol5" ? DEFAULT_SYMBOL5_GRADES : DEFAULT_SYMBOL_GRADES;
+    var sg = state.settings && state.settings[key];
+    return (sg && typeof sg==="object") ? sg : def;
   }
-  function symbolOptionsLive(){
-    var sg = symbolGrades();
-    return ["+","o","-","∀"].map(function(sym){
-      return { sym:sym, label:SYMBOL_LABELS[sym], grade: sym==="∀" ? null : (Number(sg[sym])||1) };
+  function symbolOptionsLive(criterion){
+    var syms = criterion==="symbol5" ? ["++","+","o","-","--","∀"] : ["+","o","-","∀"];
+    var labels = criterion==="symbol5" ? SYMBOL5_LABELS : SYMBOL_LABELS;
+    var sg = symbolGrades(criterion);
+    return syms.map(function(sym){
+      return { sym:sym, label:labels[sym], grade: sym==="∀" ? null : (Number(sg[sym])||1) };
     });
   }
-  function symbolToGrade(sym){
+  function symbolToGrade(sym, criterion){
     if(sym==="∀") return null;
-    var sg = symbolGrades();
+    var sg = symbolGrades(criterion);
     return Number(sg[sym])||null;
   }
   var CRITERIA = {
     punkte: {label:"Punktekatalog"},
     fehler: {label:"Fehlerkatalog"},
-    symbol: {label:"Symbolkatalog"}
+    punkte_oder_fehler: {label:"Punkte- oder Fehlerkatalog"},
+    symbol: {label:"Symbolkatalog 3-fach"},
+    symbol5: {label:"Symbolkatalog 5-fach"}
   };
   function criterionLabelFor(cat){
     return CRITERIA[cat.criterion] ? CRITERIA[cat.criterion].label : "–";
+  }
+  // Bei der Leistungsart-Kategorie "Punkte- oder Fehlerkatalog" wird bei der Leistungseingabe
+  // zusätzlich ausgewählt, ob im Einzelfall der Punkte- oder der Fehlerkatalog verwendet wird
+  // (gespeichert je Eingabeformular in "subCriterion": "punkte" oder "fehler"). Für alle
+  // anderen Kategorien entspricht das effektive Kriterium einfach der Kategorie selbst.
+  function effectiveCriterion(mainCriterion, subCriterion){
+    return mainCriterion==="punkte_oder_fehler" ? (subCriterion==="fehler" ? "fehler" : "punkte") : mainCriterion;
   }
   function newCategory(name, weight, kind, criterion){
     return {id:uid(), name:name, weight:weight, kind:kind, criterion:criterion};
@@ -747,17 +780,26 @@
     // Von der Lehrkraft in der Notenkonferenz festgelegte, endgültige Zeugnisnoten:
     // { [studentId]: { [subjectName]: 1..5 } } — unabhängig vom errechneten Vorschlag.
     finalGrades: {},
-    settings: { subjectCatalog: DEFAULT_SUBJECTS.slice(), gradeTypeCatalog: DEFAULT_TYPES.slice(), defaultSchoolYear: schoolYearGuess(), fehlerThresholds: DEFAULT_FEHLER_THRESHOLDS.slice(), symbolGrades: Object.assign({}, DEFAULT_SYMBOL_GRADES), defaultWeightTemplates: cloneBuiltinTemplates(), seeded:false },
+    // Tägliche Datensicherungen (siehe Abschnitt "Datensicherung" weiter unten):
+    // Liste der vorhandenen Backup-Dokumente (neueste zuerst), plus Auswahl/Status
+    // für das Wiederherstellen-Dropdown in "Tool zurücksetzen".
+    backups: [],
+    selectedBackupKey: null,
+    restoringBackup: false,
+    settings: { subjectCatalog: DEFAULT_SUBJECTS.slice(), gradeTypeCatalog: DEFAULT_TYPES.slice(), defaultSchoolYear: schoolYearGuess(), fehlerThresholds: DEFAULT_FEHLER_THRESHOLDS.slice(), symbolGrades: Object.assign({}, DEFAULT_SYMBOL_GRADES), symbol5Grades: Object.assign({}, DEFAULT_SYMBOL5_GRADES), defaultWeightTemplates: cloneBuiltinTemplates(), seeded:false },
     trendStudentId: null,
     trendSubject: null,
     notenkonferenzSubject: null,
-    entryForm: { subject:null, leistungsart:null, date: todayISO(), note:"", punkteMax:null, picks:{} },
-    singleEntryForm: { student:null, subject:null, leistungsart:null, date: todayISO(), note:"", punkteMax:null, punkteVal:null, fehlerCount:null, symbol:null },
+    // subCriterion: nur relevant, wenn die Leistungsart als Beurteilungskriterium "Punkte- oder
+    // Fehlerkatalog" hat — "punkte" oder "fehler", legt fest, welcher der beiden für DIESEN
+    // Eintrag verwendet wird (siehe effectiveCriterion()).
+    entryForm: { subject:null, leistungsart:null, date: todayISO(), note:"", punkteMax:null, picks:{}, subCriterion:null },
+    singleEntryForm: { student:null, subject:null, leistungsart:null, date: todayISO(), note:"", punkteMax:null, punkteVal:null, fehlerCount:null, symbol:null, subCriterion:null },
     editingGradeId: null,
     editGradeForm: null,
     collapsed: { templates:{} },
-    critDraft: { fehler:null, symbol:null },
-    critEditing: { fehler:false, symbol:false },
+    critDraft: { fehler:null, symbol:null, symbol5:null },
+    critEditing: { fehler:false, symbol:false, symbol5:false },
     renamingSubject: null,
     renameSubjectDraft: "",
     templateEditor: null,
@@ -910,16 +952,22 @@
     });
   }
   // Versucht, aus dem gespeicherten Eingabe-Text (z.B. "16/20 Punkte") die Rohwerte
-  // für das Bearbeiten-Formular zu rekonstruieren, passend zum aktuellen Kriterium.
+  // für das Bearbeiten-Formular zu rekonstruieren, passend zum aktuellen Kriterium. Bei
+  // "punkte_oder_fehler" ist vorab nicht bekannt, ob der Eintrag seinerzeit über den Punkte-
+  // oder den Fehlerkatalog erfasst wurde — deshalb werden hier beide Muster probiert und das
+  // erkannte Unterkriterium zusätzlich als "detectedCriterion" zurückgegeben, damit der Aufrufer
+  // die passende subCriterion-Auswahl (Dropdown "Punktekatalog"/"Fehlerkatalog") setzen kann.
   function parseDetailForCriterion(detail, criterion){
     if(!detail) return {};
-    if(criterion==="punkte"){
+    if(criterion==="punkte" || criterion==="punkte_oder_fehler"){
       var m = /^(-?[\d.]+)\/(-?[\d.]+) Punkte$/.exec(detail);
-      if(m) return { punkteVal:Number(m[1]), punkteMax:Number(m[2]) };
-    } else if(criterion==="fehler"){
+      if(m) return { punkteVal:Number(m[1]), punkteMax:Number(m[2]), detectedCriterion:"punkte" };
+    }
+    if(criterion==="fehler" || criterion==="punkte_oder_fehler"){
       var m2 = /^(-?[\d.]+) Fehler$/.exec(detail);
-      if(m2) return { fehlerCount:Number(m2[1]) };
-    } else {
+      if(m2) return { fehlerCount:Number(m2[1]), detectedCriterion:"fehler" };
+    }
+    if(criterion==="symbol" || criterion==="symbol5"){
       var m3 = /^Symbol (.+)$/.exec(detail);
       if(m3) return { symbol:m3[1] };
     }
@@ -942,6 +990,10 @@
   function gradesRef(classId){ return state.db.collection(dbScopePrefix()+"classes/"+classId+"/grades"); }
   function finalGradesRef(classId){ return state.db.collection(dbScopePrefix()+"classes/"+classId+"/finalGrades"); }
   function settingsDoc(){ return state.db.doc(dbScopePrefix()+"settings/global"); }
+  // Ein Dokument pro Tag (Schlüssel "JJJJ-MM-TT", siehe backupDayKey()) mit einer vollständigen
+  // Momentaufnahme der Klassenkonfiguration + Leistungseingabe — siehe Abschnitt
+  // "Datensicherung" weiter unten.
+  function backupsRef(){ return state.db.collection(dbScopePrefix()+"backups"); }
 
   // Liefert bei "Missing or insufficient permissions"-Fehlern eine Diagnosezeile, die die
   // tatsächlich bei Firebase hinterlegte Anmelde-E-Mail und den erwarteten Datenpfad zeigt —
@@ -1021,8 +1073,8 @@
   function selectClass(id){
     state.activeClassId = id || null;
     state.trendStudentId = null; state.trendSubject = null;
-    state.entryForm = { subject:null, leistungsart:null, date: todayISO(), note:"", punkteMax:null, picks:{} };
-    state.singleEntryForm = { student:null, subject:null, leistungsart:null, date: todayISO(), note:"", punkteMax:null, punkteVal:null, fehlerCount:null, symbol:null };
+    state.entryForm = { subject:null, leistungsart:null, date: todayISO(), note:"", punkteMax:null, picks:{}, subCriterion:null };
+    state.singleEntryForm = { student:null, subject:null, leistungsart:null, date: todayISO(), note:"", punkteMax:null, punkteVal:null, fehlerCount:null, symbol:null, subCriterion:null };
     state.editingGradeId = null; state.editGradeForm = null;
     if(state.dbAvailable) subscribeClass(state.activeClassId);
     render();
@@ -1040,6 +1092,7 @@
     state.singleEntryForm.note = "";
     state.singleEntryForm.punkteMax = null;
     state.singleEntryForm.punkteVal = null; state.singleEntryForm.fehlerCount = null; state.singleEntryForm.symbol = null;
+    state.singleEntryForm.subCriterion = null;
   }
   // Wie resetSingleEntrySelection, für das Formular "Mehrfachnoten eintragen" (Fach,
   // Leistungsart, Gesamtpunkte, Name der Leistung sowie die bereits ausgewählten Noten je
@@ -1050,6 +1103,7 @@
     state.entryForm.note = "";
     state.entryForm.punkteMax = null;
     state.entryForm.picks = {};
+    state.entryForm.subCriterion = null;
   }
 
   function seedIfEmpty(){
@@ -1118,6 +1172,14 @@
 
     attachSettingsListener(0);
     attachClassesListener(0);
+    attachBackupsListener(0);
+
+    // Best-effort-Ersatz für "täglich um 06:00" (siehe Kommentar bei maybeCreateDailyBackup):
+    // einmal jetzt beim Öffnen prüfen/nachholen, danach stündlich erneut, solange die App
+    // geöffnet bleibt, damit auch ein über den Tageswechsel hinweg offen gelassener Tab die
+    // Sicherung nicht verpasst.
+    maybeCreateDailyBackup();
+    setInterval(function(){ maybeCreateDailyBackup(); }, 60*60*1000);
 
     seedIfEmpty();
     render();
@@ -1153,6 +1215,18 @@
       showGlobalError("Verbindung zu den Klassen unterbrochen — wird automatisch neu verbunden…");
       var delay = Math.min(2000 * Math.pow(2, attempt||0), 20000);
       setTimeout(function(){ attachClassesListener((attempt||0)+1); }, delay);
+    });
+  }
+  // Hält state.backups (für das Wiederherstellen-Dropdown in "Tool zurücksetzen") aktuell —
+  // neueste Sicherung zuerst.
+  function attachBackupsListener(attempt){
+    backupsRef().onSnapshot(function(snap){
+      state.backups = snapToArr(snap).sort(function(a,b){ return (b.dayKey||b.id||"").localeCompare(a.dayKey||a.id||""); });
+      render();
+    }, function(err){
+      if(err && err.code==="permission-denied") return;
+      var delay = Math.min(2000 * Math.pow(2, attempt||0), 20000);
+      setTimeout(function(){ attachBackupsListener((attempt||0)+1); }, delay);
     });
   }
   /* ============================= mutation helpers (db-or-local) ============================= */
@@ -1277,6 +1351,113 @@
     return Promise.resolve();
   }
 
+  /* ============================= Datensicherung (tägliches Backup + Wiederherstellung) =============================
+     Sichert automatisch einmal pro Tag die Klassenkonfiguration + Leistungseingabe (dieselben
+     Daten, die auch "Alle Daten löschen" betrifft: Klassen, Schüler:innen, Fächerzuordnungen,
+     klasseneigene Fächergewichtsvorlagen, Noteneinträge, festgelegte Zeugnisnoten — NICHT die
+     globalen Einstellungen). Da dieses Tool rein im Browser läuft und es keine serverseitige
+     Zeitsteuerung gibt, kann "jeden Tag um 06:00" nicht exakt garantiert werden: stattdessen wird
+     bei jedem Öffnen der App sowie stündlich, während sie geöffnet ist, geprüft, ob für den
+     aktuellen "Tag" (Tagesgrenze = 06:00, siehe backupDayKey()) bereits eine Sicherung existiert,
+     und andernfalls eine erstellt. Wird die App an einem Tag gar nicht geöffnet, entsteht für
+     diesen Tag keine Sicherung — die nächste erfolgt beim nächsten Öffnen. Sicherungen, die älter
+     als 3 Monate sind, werden automatisch entfernt. */
+
+  // Ordnet einen Zeitpunkt seinem "Sicherungstag" zu: die Tagesgrenze liegt bei 06:00, d.h.
+  // 00:00–05:59 zählt noch zum VORTAG (so entspricht "heute Vormittag um 07:00 erstellt" dem
+  // Tag, an dem die Lehrkraft tatsächlich unterrichtet hat). Format "JJJJ-MM-TT" — sortiert
+  // dadurch als String bereits korrekt chronologisch, was beim Aufräumen alter Sicherungen
+  // (pruneOldBackups) und bei der Sortierung im Dropdown genutzt wird.
+  function backupDayKey(d){
+    d = new Date(d.getTime());
+    if(d.getHours() < 6) d.setDate(d.getDate() - 1);
+    var y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,"0"), day = String(d.getDate()).padStart(2,"0");
+    return y+"-"+m+"-"+day;
+  }
+  function fmtBackupDate(dayKey){
+    var p = String(dayKey||"").split("-");
+    return p.length===3 ? (p[2]+"."+p[1]+"."+p[0]) : String(dayKey||"");
+  }
+  // Liest den vollständigen aktuellen Datenbestand ALLER Klassen direkt aus der Datenbank aus
+  // (nicht aus state.students/state.grades/state.finalGrades — die enthalten immer nur die
+  // gerade aktive Klasse). Analog zu deleteClassCascade() wird je Klasse eine Momentaufnahme
+  // von Schüler:innen, Noteneinträgen und Zeugnisnoten geholt.
+  function buildFullDataSnapshot(){
+    return classesRef().get().then(function(classesSnap){
+      var classDocs = classesSnap.docs.map(function(d){ return Object.assign({}, d.data()||{}, {id:d.id}); });
+      return Promise.all(classDocs.map(function(c){
+        return Promise.all([studentsRef(c.id).get(), gradesRef(c.id).get(), finalGradesRef(c.id).get()]).then(function(r){
+          var students = r[0].docs.map(function(d){ return Object.assign({}, d.data()||{}, {id:d.id}); });
+          var grades = r[1].docs.map(function(d){ return Object.assign({}, d.data()||{}, {id:d.id}); });
+          var finalGrades = {};
+          r[2].docs.forEach(function(d){ finalGrades[d.id] = d.data()||{}; });
+          return { classData:c, students:students, grades:grades, finalGrades:finalGrades };
+        });
+      })).then(function(classesFull){ return { classes: classesFull }; });
+    });
+  }
+  // Entfernt Sicherungen, die älter als 3 Monate sind — "JJJJ-MM-TT" lässt sich als String
+  // vergleichen, weil das Format bereits chronologisch sortierbar ist.
+  function pruneOldBackups(){
+    var cutoff = new Date(); cutoff.setMonth(cutoff.getMonth()-3);
+    var cutoffKey = backupDayKey(cutoff);
+    return backupsRef().get().then(function(snap){
+      var dels = [];
+      snap.docs.forEach(function(d){ if(d.id < cutoffKey) dels.push(backupsRef().doc(d.id).delete()); });
+      return Promise.all(dels);
+    }).catch(function(){});
+  }
+  // Legt — falls für den aktuellen Sicherungstag noch keine vorhanden ist — eine neue Sicherung
+  // an. Rein im Hintergrund (kein Ladeindikator, keine Fehlermeldung an die Lehrkraft): eine
+  // fehlgeschlagene automatische Sicherung soll die eigentliche Arbeit nicht stören, das
+  // manuelle Wiederherstellen bleibt davon unabhängig nutzbar.
+  function maybeCreateDailyBackup(){
+    if(!state.dbAvailable) return;
+    var dayKey = backupDayKey(new Date());
+    backupsRef().doc(dayKey).get().then(function(snap){
+      if(snap.exists){ pruneOldBackups(); return; }
+      return buildFullDataSnapshot().then(function(data){
+        return backupsRef().doc(dayKey).set({ dayKey:dayKey, createdAt:Date.now(), data:data });
+      }).then(pruneOldBackups);
+    }).catch(function(err){ console.error("Automatische Sicherung fehlgeschlagen", err); });
+  }
+  // Ersetzt die GESAMTE aktuelle Klassenkonfiguration + Leistungseingabe durch den Stand einer
+  // ausgewählten Sicherung (Klassen-IDs, Schüler:innen-IDs und Noten-IDs bleiben dabei erhalten,
+  // damit z.B. Verweise/Reihenfolgen konsistent bleiben). Wie bei "Alle Daten löschen" bleiben
+  // die globalen Einstellungen unverändert.
+  function restoreFromBackup(dayKey){
+    var backup = state.backups.find(function(b){ return b.id===dayKey; });
+    if(!backup || !backup.data) return Promise.reject(new Error("Sicherung nicht gefunden"));
+    var snapshot = backup.data;
+    return classesRef().get().then(function(snap){
+      return Promise.all(snap.docs.map(function(d){ return deleteClassCascade(d.id); }));
+    }).then(function(){
+      return Promise.all((snapshot.classes||[]).map(function(cls){
+        var classId = cls.classData.id;
+        var classFields = Object.assign({}, cls.classData); delete classFields.id;
+        return classesRef().doc(classId).set(classFields).then(function(){
+          var writes = [];
+          (cls.students||[]).forEach(function(s){
+            var f = Object.assign({}, s); var sid = f.id; delete f.id;
+            writes.push(studentsRef(classId).doc(sid).set(f));
+          });
+          (cls.grades||[]).forEach(function(g){
+            var f = Object.assign({}, g); var gid = f.id; delete f.id;
+            writes.push(gradesRef(classId).doc(gid).set(f));
+          });
+          Object.keys(cls.finalGrades||{}).forEach(function(studentId){
+            writes.push(finalGradesRef(classId).doc(studentId).set(cls.finalGrades[studentId]));
+          });
+          return Promise.all(writes);
+        });
+      }));
+    }).then(function(){
+      state.activeClassId = null; state.finalGrades = {};
+      var firstId = (snapshot.classes && snapshot.classes[0] && snapshot.classes[0].classData) ? snapshot.classes[0].classData.id : null;
+      selectClass(firstId);
+    });
+  }
+
   // Setzt ALLE vier Einstellungen-Boxen — Beurteilungskriterien, Fächer-Katalog, Leistungsarten
   // und Fächergewichtsvorlagen-Standardwerte — wieder auf die Werkseinstellungen zurück (siehe
   // Kommentar bei DEFAULT_SUBJECTS/DEFAULT_TYPES weiter oben dazu, was "Werkseinstellungen"
@@ -1289,6 +1470,7 @@
       gradeTypeCatalog: DEFAULT_TYPES.slice(),
       fehlerThresholds: DEFAULT_FEHLER_THRESHOLDS.slice(),
       symbolGrades: Object.assign({}, DEFAULT_SYMBOL_GRADES),
+      symbol5Grades: Object.assign({}, DEFAULT_SYMBOL5_GRADES),
       defaultWeightTemplates: cloneBuiltinTemplates()
     });
   }
@@ -1820,7 +2002,9 @@
         + '<td><select class="tplCatCriterion" data-idx="'+i+'">'
             + '<option value="punkte"'+(cat.criterion==="punkte"?' selected':'')+'>Punktekatalog</option>'
             + '<option value="fehler"'+(cat.criterion==="fehler"?' selected':'')+'>Fehlerkatalog</option>'
-            + '<option value="symbol"'+(cat.criterion==="symbol"?' selected':'')+'>Symbolkatalog</option>'
+            + '<option value="punkte_oder_fehler"'+(cat.criterion==="punkte_oder_fehler"?' selected':'')+'>Punkte- oder Fehlerkatalog</option>'
+            + '<option value="symbol"'+(cat.criterion==="symbol"?' selected':'')+'>Symbolkatalog 3-fach</option>'
+            + '<option value="symbol5"'+(cat.criterion==="symbol5"?' selected':'')+'>Symbolkatalog 5-fach</option>'
             + '</select></td>'
         + '<td><button class="icon-btn" data-action="remove-tpl-cat" data-idx="'+i+'" title="Entfernen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></button></td>'
         + '</tr>';
@@ -1848,8 +2032,12 @@
       + '<tr><td>&gt;'+ft[3]+' Fehler</td><td class="num">Note 5</td></tr>'
       + '</tbody></table></div><div class="subnote">Schwellwerte global in Einstellungen → Beurteilungskriterien änderbar.</div></details></div>';
 
-    html += '<div class="tpl-reference-block"><details><summary>Symbolkatalog</summary><div class="body"><table class="entries-table" style="max-width:380px;"><tbody>'
-      + symbolOptionsLive().map(function(o){ return '<tr><td class="mono">'+esc(o.sym)+'</td><td>'+esc(o.label)+'</td><td class="num">'+(o.grade?('Note '+o.grade):'keine Note')+'</td></tr>'; }).join("")
+    html += '<div class="tpl-reference-block"><details><summary>Symbolkatalog 3-fach</summary><div class="body"><table class="entries-table" style="max-width:380px;"><tbody>'
+      + symbolOptionsLive("symbol").map(function(o){ return '<tr><td class="mono">'+esc(o.sym)+'</td><td>'+esc(o.label)+'</td><td class="num">'+(o.grade?('Note '+o.grade):'keine Note')+'</td></tr>'; }).join("")
+      + '</tbody></table></div><div class="subnote">Notenzuordnung global in Einstellungen → Beurteilungskriterien änderbar.</div></details></div>';
+
+    html += '<div class="tpl-reference-block"><details><summary>Symbolkatalog 5-fach</summary><div class="body"><table class="entries-table" style="max-width:380px;"><tbody>'
+      + symbolOptionsLive("symbol5").map(function(o){ return '<tr><td class="mono">'+esc(o.sym)+'</td><td>'+esc(o.label)+'</td><td class="num">'+(o.grade?('Note '+o.grade):'keine Note')+'</td></tr>'; }).join("")
       + '</tbody></table></div><div class="subnote">Notenzuordnung global in Einstellungen → Beurteilungskriterien änderbar.</div></details></div>';
 
     html += '</div>';
@@ -1863,13 +2051,15 @@
     var egOpts = subjectCriterionOptions(eg.subject);
     if(!egOpts.length) egOpts = [{name:"Leistung", criterion:"symbol"}];
     if(!eg.leistungsart || !egOpts.some(function(o){return o.name===eg.leistungsart;})) eg.leistungsart = egOpts[0].name;
-    var egCriterion = criterionForLeistungsart(eg.subject, eg.leistungsart);
+    var egMainCriterion = criterionForLeistungsart(eg.subject, eg.leistungsart);
+    if(egMainCriterion==="punkte_oder_fehler" && eg.subCriterion!=="punkte" && eg.subCriterion!=="fehler") eg.subCriterion = "punkte";
+    var egCriterion = effectiveCriterion(egMainCriterion, eg.subCriterion);
     var egGrade = egCriterion==="punkte" ? ((eg.punkteVal===null||eg.punkteVal===undefined||eg.punkteVal==="") ? null : gradeFromPunkte(eg.punkteMax, eg.punkteVal))
       : egCriterion==="fehler" ? ((eg.fehlerCount===null||eg.fehlerCount===undefined||eg.fehlerCount==="") ? null : gradeFromFehler(eg.fehlerCount))
-      : (eg.symbol ? symbolToGrade(eg.symbol) : null);
+      : (eg.symbol ? symbolToGrade(eg.symbol, egCriterion) : null);
     // "∀" (entschuldigt/nicht bewertbar) liefert absichtlich keine Note (egGrade bleibt null),
     // ist aber trotzdem eine gültige, speicherbare Auswahl.
-    var egCanSave = egCriterion==="symbol" ? !!eg.symbol : !!egGrade;
+    var egCanSave = (egCriterion==="symbol"||egCriterion==="symbol5") ? !!eg.symbol : !!egGrade;
 
     var html = '<tr><td colspan="7"><div class="stack" style="gap:10px; padding:8px 0;">';
     html += '<div class="row" style="flex-wrap:wrap;">';
@@ -1881,6 +2071,13 @@
       + '<div class="ac-list" id="egNoteList" hidden>'+pastLeistungsNamen(eg.subject, eg.leistungsart).map(function(e){return '<div class="ac-item" data-name="'+esc(e.name)+'"><b>'+esc(e.name)+'</b>'+(e.date?' <span class="ac-date">· '+esc(fmtDate(e.date))+'</span>':'')+'</div>';}).join("")+'</div>'
       + '</div>';
     html += '</div>';
+
+    if(egMainCriterion==="punkte_oder_fehler"){
+      html += '<div class="row" style="margin-bottom:6px;"><div class="field" style="width:200px;"><label>Beurteilung über</label><select id="egSubCriterion">'
+        + '<option value="punkte"'+(egCriterion==="punkte"?' selected':'')+'>Punktekatalog</option>'
+        + '<option value="fehler"'+(egCriterion==="fehler"?' selected':'')+'>Fehlerkatalog</option>'
+        + '</select></div></div>';
+    }
 
     html += (egCriterion==="punkte"
         ? ('<div class="row" style="align-items:flex-end;">'
@@ -1895,7 +2092,7 @@
           + '</div>')
         : ('<div class="row" style="align-items:center;">'
           + '<div class="grade-btn-row">'
-          + symbolOptionsLive().map(function(o){
+          + symbolOptionsLive(egCriterion).map(function(o){
               var active = eg.symbol===o.sym;
               var style = active ? (o.grade ? ('background:'+GRADE_COLOR_HEX[o.grade]+';border-color:'+GRADE_COLOR_HEX[o.grade]+';color:'+GRADE_TEXT_ON[o.grade]+';') : 'background:var(--ink-muted);border-color:var(--ink-muted);color:#fff;') : '';
               return '<button type="button" class="grade-btn'+(active?' picked':'')+'" style="'+style+'" data-action="pick-symbol-edit" data-sym="'+esc(o.sym)+'" title="'+esc(o.label)+'">'+esc(o.sym)+'</button>';
@@ -1934,7 +2131,10 @@
     var efOpts = subjectCriterionOptions(ef.subject);
     if(!efOpts.length) efOpts = [{name:"Leistung", criterion:"symbol"}];
     if(ef.leistungsart && !efOpts.some(function(o){return o.name===ef.leistungsart;})) ef.leistungsart = null;
-    var efCriterion = criterionForLeistungsart(ef.subject, ef.leistungsart);
+    var efMainCriterion = criterionForLeistungsart(ef.subject, ef.leistungsart);
+    if(efMainCriterion!=="punkte_oder_fehler") ef.subCriterion = null;
+    else if(ef.subCriterion!=="punkte" && ef.subCriterion!=="fehler") ef.subCriterion = "punkte";
+    var efCriterion = effectiveCriterion(efMainCriterion, ef.subCriterion);
     // Beim Auswählen eines bereits verwendeten Namens ("alte Leistung") die damals
     // eingetragenen Werte je Schüler:in ins Formular laden, damit sie verändert werden können.
     if(ef._pendingMatchCheck){
@@ -1942,9 +2142,15 @@
       var efMatches = findExistingGradesByNote(ef.subject, ef.leistungsart, ef.note);
       if(efMatches.length){
         ef.date = efMatches[0].date || ef.date;
+        // Bei "Punkte- oder Fehlerkatalog" wird anhand des ersten gefundenen Eintrags erkannt,
+        // ob damals über Punkte oder Fehler erfasst wurde, und das Dropdown entsprechend gesetzt.
+        if(efMainCriterion==="punkte_oder_fehler"){
+          var efFirstParsed = parseDetailForCriterion(efMatches[0].detail, efMainCriterion);
+          if(efFirstParsed.detectedCriterion){ ef.subCriterion = efFirstParsed.detectedCriterion; efCriterion = ef.subCriterion; }
+        }
         var newPicks = {};
         efMatches.forEach(function(g){
-          var parsed = parseDetailForCriterion(g.detail, efCriterion);
+          var parsed = parseDetailForCriterion(g.detail, efMainCriterion);
           // Ein gespeicherter Eintrag kann eine studentId tragen, die es unter den aktuellen
           // Schüler:innen nicht mehr gibt (z. B. weil die Person entfernt und später mit neuer
           // id wieder hinzugefügt wurde – bestehende Noteneinträge bleiben dabei absichtlich
@@ -1978,15 +2184,19 @@
     var sfOpts = subjectCriterionOptions(sf.subject);
     if(!sfOpts.length) sfOpts = [{name:"Leistung", criterion:"symbol"}];
     if(sf.leistungsart && !sfOpts.some(function(o){return o.name===sf.leistungsart;})) sf.leistungsart = null;
-    var sfCriterion = criterionForLeistungsart(sf.subject, sf.leistungsart);
+    var sfMainCriterion = criterionForLeistungsart(sf.subject, sf.leistungsart);
+    if(sfMainCriterion!=="punkte_oder_fehler") sf.subCriterion = null;
+    else if(sf.subCriterion!=="punkte" && sf.subCriterion!=="fehler") sf.subCriterion = "punkte";
+    var sfCriterion = effectiveCriterion(sfMainCriterion, sf.subCriterion);
     // Beim Auswählen eines bereits verwendeten Namens ("alte Leistung") den damals
     // eingetragenen Wert ins Formular laden, damit er verändert werden kann.
     if(sf._pendingMatchCheck){
       sf._pendingMatchCheck = false;
       var sfMatch = findExistingGrade(sf.student, sf.subject, sf.leistungsart, sf.note);
       if(sfMatch){
-        var sfParsed = parseDetailForCriterion(sfMatch.detail, sfCriterion);
+        var sfParsed = parseDetailForCriterion(sfMatch.detail, sfMainCriterion);
         sf.date = sfMatch.date || sf.date;
+        if(sfMainCriterion==="punkte_oder_fehler" && sfParsed.detectedCriterion){ sf.subCriterion = sfParsed.detectedCriterion; sfCriterion = sf.subCriterion; }
         if(sfParsed.punkteMax!==undefined) sf.punkteMax = sfParsed.punkteMax;
         sf.punkteVal = sfParsed.punkteVal!==undefined ? sfParsed.punkteVal : null;
         sf.fehlerCount = sfParsed.fehlerCount!==undefined ? sfParsed.fehlerCount : null;
@@ -2000,6 +2210,10 @@
         var sfGroupMatches = findExistingGradesByNote(sf.subject, sf.leistungsart, sf.note);
         if(sfGroupMatches.length){
           sf.date = sfGroupMatches[0].date || sf.date;
+          if(sfMainCriterion==="punkte_oder_fehler"){
+            var sfGroupDetected = parseDetailForCriterion(sfGroupMatches[0].detail, sfMainCriterion);
+            if(sfGroupDetected.detectedCriterion){ sf.subCriterion = sfGroupDetected.detectedCriterion; sfCriterion = sf.subCriterion; }
+          }
           if(sfCriterion==="punkte"){
             var sfGroupParsed = parseDetailForCriterion(sfGroupMatches[0].detail, sfCriterion);
             if(sfGroupParsed.punkteMax!==undefined) sf.punkteMax = sfGroupParsed.punkteMax;
@@ -2010,11 +2224,11 @@
     }
     var sfGrade = sfCriterion==="punkte" ? ((sf.punkteVal===null||sf.punkteVal===undefined||sf.punkteVal==="") ? null : gradeFromPunkte(sf.punkteMax, sf.punkteVal))
       : sfCriterion==="fehler" ? ((sf.fehlerCount===null||sf.fehlerCount===undefined||sf.fehlerCount==="") ? null : gradeFromFehler(sf.fehlerCount))
-      : (sf.symbol ? symbolToGrade(sf.symbol) : null);
+      : (sf.symbol ? symbolToGrade(sf.symbol, sfCriterion) : null);
     // "∀" (entschuldigt/nicht bewertbar) liefert absichtlich keine Note (sfGrade bleibt null),
     // ist aber trotzdem eine gültige, speicherbare Auswahl – daher eigene Prüfung fürs Freischalten
     // des Speichern-Buttons statt sich allein auf sfGrade zu verlassen.
-    var sfCanSave = sfCriterion==="symbol" ? !!sf.symbol : !!sfGrade;
+    var sfCanSave = (sfCriterion==="symbol"||sfCriterion==="symbol5") ? !!sf.symbol : !!sfGrade;
     var sfMaxInvalid = sfCriterion==="punkte" && !(Number(sf.punkteMax)>=10 && Number(sf.punkteMax)<=119);
     var sfExistingMatch = findExistingGrade(sf.student, sf.subject, sf.leistungsart, sf.note);
     var efExistingMatches = findExistingGradesByNote(ef.subject, ef.leistungsart, ef.note);
@@ -2040,6 +2254,12 @@
       + '</div>'
       + (!sfReady ? '<div class="subnote warn" style="margin-bottom:10px;">Bitte zuerst Fach und Leistungsart auswählen.</div>'
           : !sfNameOk ? '<div class="subnote warn" style="margin-bottom:10px;">Bitte zuerst den Namen der Leistung eingeben, bevor eine Note vergeben wird.</div>' : '')
+      + (sfMainCriterion==="punkte_oder_fehler"
+          ? ('<div class="row" style="margin-bottom:6px;"><div class="field" style="width:200px;"><label>Beurteilung über</label><select id="sfSubCriterion">'
+            + '<option value="punkte"'+(sfCriterion==="punkte"?' selected':'')+'>Punktekatalog</option>'
+            + '<option value="fehler"'+(sfCriterion==="fehler"?' selected':'')+'>Fehlerkatalog</option>'
+            + '</select></div></div>')
+          : '')
       + (sfCriterion==="punkte"
           ? ('<div class="row" style="align-items:flex-end; margin-bottom:6px;">'
             + '<div class="field" style="width:140px;"><label>Gesamtpunkte</label><input type="number" id="sfPunkteMax" min="10" max="119" value="'+esc(sf.punkteMax)+'"></div>'
@@ -2054,7 +2274,7 @@
             + '</div>')
           : ('<div class="row" style="align-items:center; margin-bottom:6px;">'
             + '<div class="grade-btn-row">'
-            + symbolOptionsLive().map(function(o){
+            + symbolOptionsLive(sfCriterion).map(function(o){
                 var active = sf.symbol===o.sym;
                 var style = active ? (o.grade ? ('background:'+GRADE_COLOR_HEX[o.grade]+';border-color:'+GRADE_COLOR_HEX[o.grade]+';color:'+GRADE_TEXT_ON[o.grade]+';') : 'background:var(--ink-muted);border-color:var(--ink-muted);color:#fff;') : '';
                 return '<button type="button" class="grade-btn'+(active?' picked':'')+((sfNameOk && sfReady)?'':' grade-locked')+'" style="'+style+'" data-action="pick-symbol-single" data-sym="'+esc(o.sym)+'" title="'+esc(o.label)+'">'+esc(o.sym)+'</button>';
@@ -2066,6 +2286,7 @@
       + (sfExistingMatch ? '<div class="subnote">Bestehender Eintrag vom '+fmtDate(sfExistingMatch.date)+' wird aktualisiert.</div>'
           : sfOtherMatches.length ? '<div class="subnote">Diese Leistung wurde bereits bei '+sfOtherMatches.length+' anderen Schüler:in(nen) erfasst – hier wird ein neuer Eintrag angelegt.</div>' : '')
       + (sfExistingMatch ? '<button class="btn ghost" id="newSingleEntryBtn" type="button">Neuer Eintrag</button>' : '')
+      + (sfExistingMatch ? '<button class="btn danger" id="deleteSingleEntryBtn" type="button">Eintrag löschen</button>' : '')
       + '<button class="btn primary" id="saveSingleEntryBtn" '+((sfCanSave && sfNameOk && sfReady)?'':'disabled')+'>'+(sfExistingMatch ? 'Eintrag aktualisieren' : 'Eintrag speichern')+'</button>'
       + '</div>'
       + '</div>'))
@@ -2085,6 +2306,12 @@
       + '</div>'
       + (!efReady ? '<div class="subnote warn" style="margin-bottom:10px;">Bitte zuerst Fach und Leistungsart auswählen.</div>'
           : !efNameOk ? '<div class="subnote warn" style="margin-bottom:10px;">Bitte zuerst den Namen der Leistung eingeben, bevor Noten vergeben werden.</div>' : '')
+      + (efMainCriterion==="punkte_oder_fehler"
+          ? ('<div class="row" style="margin-bottom:6px;"><div class="field" style="width:200px;"><label>Beurteilung über</label><select id="efSubCriterion">'
+            + '<option value="punkte"'+(efCriterion==="punkte"?' selected':'')+'>Punktekatalog</option>'
+            + '<option value="fehler"'+(efCriterion==="fehler"?' selected':'')+'>Fehlerkatalog</option>'
+            + '</select></div></div>')
+          : '')
       + '<table class="entries-table" style="margin-bottom:12px;"><thead><tr><th>Schüler:in</th>'
         + (efCriterion==="punkte" ? '<th style="width:160px;">Erreichte Punkte</th>' : efCriterion==="fehler" ? '<th style="width:160px;">Anzahl Fehler</th>' : '<th style="width:260px;">Symbol</th>')
         + '<th style="width:90px;" class="num">Note</th></tr></thead><tbody>'
@@ -2099,8 +2326,8 @@
             grade = (raw===undefined||raw===null||raw==="") ? null : gradeFromFehler(raw);
             inputCell = '<input type="number" class="efFehlerInput'+((efNameOk && efReady)?'':' grade-locked')+'" id="efFehlerInput-'+esc(s.id)+'" data-student="'+esc(s.id)+'" min="0" style="width:110px;" value="'+((raw===undefined||raw===null)?'':raw)+'">';
           } else {
-            grade = raw ? symbolToGrade(raw) : null;
-            inputCell = '<div class="grade-btn-row">' + symbolOptionsLive().map(function(o){
+            grade = raw ? symbolToGrade(raw, efCriterion) : null;
+            inputCell = '<div class="grade-btn-row">' + symbolOptionsLive(efCriterion).map(function(o){
               var active = raw===o.sym;
               var style = active ? (o.grade ? ('background:'+GRADE_COLOR_HEX[o.grade]+';border-color:'+GRADE_COLOR_HEX[o.grade]+';color:'+GRADE_TEXT_ON[o.grade]+';') : 'background:var(--ink-muted);border-color:var(--ink-muted);color:#fff;') : '';
               return '<button type="button" class="grade-btn'+(active?' picked':'')+((efNameOk && efReady)?'':' grade-locked')+'" style="'+style+'" data-action="pick-symbol" data-student="'+esc(s.id)+'" data-sym="'+esc(o.sym)+'" title="'+esc(o.label)+'">'+esc(o.sym)+'</button>';
@@ -2123,6 +2350,7 @@
           // space-between würde eine einzelne umgebrochene Zeile sonst nach links springen.
           return '<div class="row"><div class="subnote">'+subnoteTxt+'</div><div class="row" style="gap:14px; margin-left:auto;">'
             + (efExistingMatches.length ? '<button class="btn ghost" id="newMultiEntryBtn" type="button">Neuer Eintrag</button>' : '')
+            + (efExistingMatches.length ? '<button class="btn danger" id="deleteMultiEntryBtn" type="button">Eintrag löschen</button>' : '')
             + '<button class="btn primary" id="saveEntriesBtn" '+((pickedCount && efNameOk && efReady)?'':'disabled')+'>'+(efExistingMatches.length ? 'Einträge aktualisieren' : 'Einträge speichern')+'</button>'
             + '</div></div>';
         })()
@@ -2722,6 +2950,8 @@
     var fehlerOk = fehlerThresholdsValid(fd);
     var symbolEditing = state.critEditing.symbol;
     var sg = symbolEditing ? (state.critDraft.symbol || (state.critDraft.symbol = Object.assign({}, state.settings.symbolGrades))) : state.settings.symbolGrades;
+    var symbol5Editing = state.critEditing.symbol5;
+    var sg5 = symbol5Editing ? (state.critDraft.symbol5 || (state.critDraft.symbol5 = Object.assign({}, state.settings.symbol5Grades))) : state.settings.symbol5Grades;
 
     html += '<div class="card card-pad settings-block">'
       + collapseHead('settings:beurteilungskriterien', 'Beurteilungskriterien');
@@ -2764,7 +2994,7 @@
       + '</div>';
 
     html += '<div class="crit-block" style="margin-top:14px;">'
-      + collapseHead('crit:symbol', 'Symbolkatalog')
+      + collapseHead('crit:symbol', 'Symbolkatalog 3-fach')
       + (isCollapsed('crit:symbol') ? '' : ('<div class="collapse-body">'
         + '<div class="hint">Für alle sonstigen Leistungen (Mitarbeit, Hausübung, …). „∀“ bleibt fix ohne Note (entschuldigt).</div>'
         + '<table class="entries-table crit-table"><tbody>'
@@ -2781,6 +3011,28 @@
         + (symbolEditing
             ? '<button class="btn ghost sm" id="cancelSymbolBtn" type="button">Abbrechen</button><button class="btn primary sm" id="saveSymbolBtn">Speichern</button>'
             : '<button class="btn sm" id="editSymbolBtn">Bearbeiten</button>')
+        + '</div>'
+        + '</div>'))
+      + '</div>';
+
+    html += '<div class="crit-block" style="margin-top:14px;">'
+      + collapseHead('crit:symbol5', 'Symbolkatalog 5-fach')
+      + (isCollapsed('crit:symbol5') ? '' : ('<div class="collapse-body">'
+        + '<div class="hint">Feinere Abstufung für sonstige Leistungen. „∀“ bleibt fix ohne Note (entschuldigt).</div>'
+        + '<table class="entries-table crit-table"><tbody>'
+        + ['++','+','o','-','--'].map(function(sym){
+            return '<tr><td class="mono">'+esc(sym)+'</td><td>'+esc(SYMBOL5_LABELS[sym])+'</td><td>'
+              + (symbol5Editing
+                  ? ('<select class="sym5GradeSelect" data-sym="'+esc(sym)+'">'+[1,2,3,4,5].map(function(g){ return '<option value="'+g+'"'+(Number(sg5[sym])===g?' selected':'')+'>Note '+g+'</option>'; }).join("")+'</select>')
+                  : ('<strong>Note '+esc(sg5[sym])+'</strong>'))
+              + '</td></tr>';
+          }).join("")
+        + '<tr><td class="mono">∀</td><td>'+esc(SYMBOL5_LABELS["∀"])+'</td><td style="color:var(--ink-muted);">keine Note</td></tr>'
+        + '</tbody></table>'
+        + '<div class="row" style="justify-content:flex-end; margin-top:10px; gap:8px;">'
+        + (symbol5Editing
+            ? '<button class="btn ghost sm" id="cancelSymbol5Btn" type="button">Abbrechen</button><button class="btn primary sm" id="saveSymbol5Btn">Speichern</button>'
+            : '<button class="btn sm" id="editSymbol5Btn">Bearbeiten</button>')
         + '</div>'
         + '</div>'))
       + '</div>';
@@ -2853,6 +3105,15 @@
       + (isCollapsed('settings:reset') ? '' : ('<div class="collapse-body stack">'
       + '<div class="row between"><div><strong style="font-size:0.9rem;">Auf Werkseinstellungen zurücksetzen</strong><div class="hint">Stellt Beurteilungskriterien, Fächer-Katalog, Leistungsarten und die Fächergewichtsvorlagen-Standardwerte (für neu angelegte Klassen) wieder auf die Werkseinstellungen zurück. Bereits angelegte Klassen behalten ihre eigenen Fächergewichtsvorlagen unverändert; Klassen, Schüler:innen und Noteneinträge bleiben ohnehin erhalten.</div></div><button class="btn sm" id="resetDefaultsBtn">Zurücksetzen</button></div>'
       + '<div class="row between"><div><strong style="font-size:0.9rem;">Alle Daten löschen</strong><div class="hint">Entfernt unwiderruflich alle in der Klassenkonfiguration und der Leistungseingabe erfassten Daten: Klassen, Schüler:innen, Fächerzuordnungen, klasseneigene Fächergewichtsvorlagen, Noteneinträge und festgelegte Zeugnisnoten. Die Einstellungen (Beurteilungskriterien, Fächer-Katalog, Leistungsarten, Fächergewichtsvorlagen-Standardwerte) bleiben unverändert.</div></div><button class="btn danger sm" id="wipeAllBtn">Alles löschen</button></div>'
+      + '<div class="row between" style="align-items:flex-start;"><div><strong style="font-size:0.9rem;">Datenwiederherstellung</strong><div class="hint">Die Klassenkonfiguration und die Leistungseingabe werden automatisch täglich gesichert — jeweils beim ersten Öffnen des Tools an einem neuen Tag (Tagesgrenze 06:00) sowie stündlich, solange es geöffnet bleibt. Eine exakte Uhrzeit wie 06:00 kann ein rein im Browser laufendes Tool nicht garantieren; wird das Tool an einem Tag gar nicht geöffnet, entsteht für diesen Tag keine Sicherung. Sicherungen der letzten 3 Monate stehen unten zur Auswahl. Beim Wiederherstellen wird der AKTUELLE Stand vollständig durch die gewählte Sicherung ersetzt.</div></div>'
+      + '<div class="row" style="flex-shrink:0; align-items:center; gap:8px;">'
+        + '<select id="backupSelect"'+(!state.backups.length?' disabled':'')+'>'
+        + (state.backups.length
+            ? state.backups.map(function(b){ return '<option value="'+esc(b.id)+'"'+(b.id===state.selectedBackupKey?' selected':'')+'>'+esc(fmtBackupDate(b.dayKey||b.id))+'</option>'; }).join("")
+            : '<option value="">Noch keine Sicherung vorhanden</option>')
+        + '</select>'
+        + '<button class="btn sm" id="restoreBackupBtn"'+(!state.backups.length||state.restoringBackup?' disabled':'')+'>'+(state.restoringBackup?'Wird wiederhergestellt…':'Wiederherstellen')+'</button>'
+      + '</div></div>'
       + '</div>'))
       + '</div>';
 
@@ -3199,13 +3460,19 @@
         render();
       };
     });
+    var sfSubCriterion = document.getElementById("sfSubCriterion"); if(sfSubCriterion) sfSubCriterion.onchange = function(){
+      state.singleEntryForm.subCriterion = sfSubCriterion.value;
+      state.singleEntryForm.punkteVal = null;
+      state.singleEntryForm.fehlerCount = null;
+      render();
+    };
     var saveSingleEntryBtn = document.getElementById("saveSingleEntryBtn");
     if(saveSingleEntryBtn) saveSingleEntryBtn.onclick = function(){
       var sf = state.singleEntryForm;
       var st = state.students.find(function(s){return s.id===sf.student;});
       if(!st) return;
       if(!sf.note || !sf.note.trim()) return;
-      var criterion = criterionForLeistungsart(sf.subject, sf.leistungsart);
+      var criterion = effectiveCriterion(criterionForLeistungsart(sf.subject, sf.leistungsart), sf.subCriterion);
       var grade=null, detail=null;
       if(criterion==="punkte"){
         if(sf.punkteVal===null || sf.punkteVal===undefined) return;
@@ -3222,7 +3489,7 @@
         if(sf.symbol==="∀"){
           grade = null; // entschuldigt/nicht bewertbar – bewusst ohne Note, aber gültiger Eintrag
         } else {
-          grade = symbolToGrade(sf.symbol);
+          grade = symbolToGrade(sf.symbol, criterion);
           if(!grade) return;
         }
         detail = "Symbol "+sf.symbol;
@@ -3250,6 +3517,19 @@
       state.singleEntryForm.date = todayISO();
       render();
     };
+    var deleteSingleEntryBtn = document.getElementById("deleteSingleEntryBtn");
+    if(deleteSingleEntryBtn) deleteSingleEntryBtn.onclick = function(){
+      var sf = state.singleEntryForm;
+      var existing = findExistingGrade(sf.student, sf.subject, sf.leistungsart, sf.note);
+      if(!existing) return;
+      showConfirm("Diesen Eintrag löschen?", function(){
+        removeGrade(state.activeClassId, existing.id).then(function(){
+          resetSingleEntrySelection();
+          state.singleEntryForm.date = todayISO();
+          render();
+        });
+      });
+    };
 
     // Leistungseingabe – Mehrfachnoten
     var efSubject = document.getElementById("efSubject"); if(efSubject) efSubject.onchange = function(){
@@ -3263,6 +3543,11 @@
       state.entryForm.leistungsart = efLeistungsart.value;
       state.entryForm.picks = {};
       state.entryForm._pendingMatchCheck = true;
+      render();
+    };
+    var efSubCriterion = document.getElementById("efSubCriterion"); if(efSubCriterion) efSubCriterion.onchange = function(){
+      state.entryForm.subCriterion = efSubCriterion.value;
+      state.entryForm.picks = {};
       render();
     };
     var efPunkteMax = document.getElementById("efPunkteMax"); if(efPunkteMax) efPunkteMax.oninput = function(){ state.entryForm.punkteMax = Number(efPunkteMax.value)||0; render(); };
@@ -3320,7 +3605,7 @@
       var ef = state.entryForm;
       if(!ef.note || !ef.note.trim()) return;
       var noteTrim = ef.note.trim();
-      var criterion = criterionForLeistungsart(ef.subject, ef.leistungsart);
+      var criterion = effectiveCriterion(criterionForLeistungsart(ef.subject, ef.leistungsart), ef.subCriterion);
       var newRows = [];
       var updates = [];
       state.students.forEach(function(s){
@@ -3341,7 +3626,7 @@
           if(raw==="∀"){
             grade = null; // entschuldigt/nicht bewertbar – bewusst ohne Note, aber gültiger Eintrag
           } else {
-            grade = symbolToGrade(raw);
+            grade = symbolToGrade(raw, criterion);
             if(!grade) return;
           }
           detail = "Symbol "+raw;
@@ -3368,6 +3653,22 @@
       state.entryForm.date = todayISO();
       render();
     };
+    var deleteMultiEntryBtn = document.getElementById("deleteMultiEntryBtn");
+    if(deleteMultiEntryBtn) deleteMultiEntryBtn.onclick = function(){
+      var ef = state.entryForm;
+      var matches = findExistingGradesByNote(ef.subject, ef.leistungsart, ef.note);
+      if(!matches.length) return;
+      var msg = matches.length===1
+        ? "Diesen Eintrag löschen?"
+        : "Diese Leistung bei allen "+matches.length+" Schüler:innen löschen?";
+      showConfirm(msg, function(){
+        Promise.all(matches.map(function(g){ return removeGrade(state.activeClassId, g.id); })).then(function(){
+          resetMultiEntrySelection();
+          state.entryForm.date = todayISO();
+          render();
+        });
+      });
+    };
     document.querySelectorAll('[data-action="delete-grade"]').forEach(function(b){
       b.onclick = function(){ showConfirm("Diesen Eintrag löschen?", function(){ removeGrade(state.activeClassId, b.dataset.id); }); };
     });
@@ -3380,7 +3681,7 @@
         state.editingGradeId = g.id;
         state.editGradeForm = Object.assign({
           studentId: g.studentId, subject: g.subject, leistungsart: g.type, date: g.date, note: g.note||"",
-          punkteMax: 20, punkteVal: null, fehlerCount: null, symbol: null
+          punkteMax: 20, punkteVal: null, fehlerCount: null, symbol: null, subCriterion: parsed.detectedCriterion || null
         }, parsed);
         render();
       };
@@ -3390,11 +3691,18 @@
       state.editGradeForm.subject = egSubject.value;
       state.editGradeForm.leistungsart = null;
       state.editGradeForm.punkteVal = null; state.editGradeForm.fehlerCount = null; state.editGradeForm.symbol = null;
+      state.editGradeForm.subCriterion = null;
       render();
     };
     var egLeistungsart = document.getElementById("egLeistungsart"); if(egLeistungsart) egLeistungsart.onchange = function(){
       state.editGradeForm.leistungsart = egLeistungsart.value;
       state.editGradeForm.punkteVal = null; state.editGradeForm.fehlerCount = null; state.editGradeForm.symbol = null;
+      state.editGradeForm.subCriterion = null;
+      render();
+    };
+    var egSubCriterion = document.getElementById("egSubCriterion"); if(egSubCriterion) egSubCriterion.onchange = function(){
+      state.editGradeForm.subCriterion = egSubCriterion.value;
+      state.editGradeForm.punkteVal = null; state.editGradeForm.fehlerCount = null;
       render();
     };
     var egDate = document.getElementById("egDate"); if(egDate) egDate.onchange = function(){ state.editGradeForm.date = egDate.value; };
@@ -3418,7 +3726,7 @@
       var st = state.students.find(function(s){return s.id===eg.studentId;});
       if(!st) return;
       if(!eg.note || !eg.note.trim()) return;
-      var criterion = criterionForLeistungsart(eg.subject, eg.leistungsart);
+      var criterion = effectiveCriterion(criterionForLeistungsart(eg.subject, eg.leistungsart), eg.subCriterion);
       var grade=null, detail=null;
       if(criterion==="punkte"){
         if(eg.punkteVal===null || eg.punkteVal===undefined) return;
@@ -3435,7 +3743,7 @@
         if(eg.symbol==="∀"){
           grade = null; // entschuldigt/nicht bewertbar – bewusst ohne Note, aber gültiger Eintrag
         } else {
-          grade = symbolToGrade(eg.symbol);
+          grade = symbolToGrade(eg.symbol, criterion);
           if(!grade) return;
         }
         detail = "Symbol "+eg.symbol;
@@ -3610,6 +3918,32 @@
         render();
       };
     });
+    var editSymbol5Btn = document.getElementById("editSymbol5Btn");
+    if(editSymbol5Btn) editSymbol5Btn.onclick = function(){
+      state.critDraft.symbol5 = Object.assign({}, state.settings.symbol5Grades);
+      state.critEditing.symbol5 = true;
+      render();
+    };
+    var cancelSymbol5Btn = document.getElementById("cancelSymbol5Btn");
+    if(cancelSymbol5Btn) cancelSymbol5Btn.onclick = function(){
+      state.critEditing.symbol5 = false;
+      state.critDraft.symbol5 = null;
+      render();
+    };
+    var saveSymbol5Btn = document.getElementById("saveSymbol5Btn");
+    if(saveSymbol5Btn) saveSymbol5Btn.onclick = function(){
+      saveSettings({symbol5Grades: state.critDraft.symbol5}).then(function(){
+        state.critEditing.symbol5 = false;
+        state.critDraft.symbol5 = null;
+        render();
+      });
+    };
+    document.querySelectorAll(".sym5GradeSelect").forEach(function(el){
+      el.onchange = function(){
+        state.critDraft.symbol5[el.dataset.sym] = Number(el.value)||1;
+        render();
+      };
+    });
     var exportPunktekatalogBtn = document.getElementById("exportPunktekatalogBtn");
     if(exportPunktekatalogBtn) exportPunktekatalogBtn.onclick = doExportPunktekatalog;
     var wipeAllBtn = document.getElementById("wipeAllBtn");
@@ -3626,6 +3960,25 @@
       showConfirm("Beurteilungskriterien, Fächer-Katalog, Leistungsarten und die Fächergewichtsvorlagen-Standardwerte für neue Klassen wirklich auf die Werkseinstellungen zurücksetzen? Eigene Anpassungen daran gehen verloren. Bereits angelegte Klassen sind davon nicht betroffen.", function(){
         resetToFactoryDefaults();
       }, { okLabel:"Zurücksetzen" });
+    };
+    var backupSelect = document.getElementById("backupSelect");
+    if(backupSelect) backupSelect.onchange = function(){ state.selectedBackupKey = backupSelect.value || null; };
+    var restoreBackupBtn = document.getElementById("restoreBackupBtn");
+    if(restoreBackupBtn) restoreBackupBtn.onclick = function(){
+      var sel = document.getElementById("backupSelect");
+      var dayKey = (sel && sel.value) || state.selectedBackupKey;
+      if(!dayKey) return;
+      var label = fmtBackupDate(dayKey);
+      showConfirm("Wirklich die Sicherung vom "+label+" wiederherstellen? Der AKTUELLE Stand der Klassenkonfiguration und Leistungseingabe — alle Klassen, Schüler:innen, Noteneinträge und Zeugnisnoten — wird dabei unwiderruflich durch diesen Stand ersetzt.", function(){
+        state.restoringBackup = true; render();
+        restoreFromBackup(dayKey).then(function(){
+          state.restoringBackup = false; render();
+          showNotice("Die Sicherung vom "+label+" wurde wiederhergestellt.");
+        }).catch(function(err){
+          state.restoringBackup = false; render();
+          showGlobalError("Wiederherstellen fehlgeschlagen — " + (err && (err.message||err.code) ? (err.message||err.code) : err));
+        });
+      }, { okLabel:"Wiederherstellen" });
     };
   }
 
