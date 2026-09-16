@@ -441,7 +441,7 @@
       </div>
       <div>
         <div class="brand-name">Leistungskompass</div>
-        <div class="brand-sub">Volksschule || Anna</div>
+        <div class="brand-sub" id="brandSubLabel">Volksschule</div>
       </div>
     </div>
     <button class="menu-toggle" id="menuToggleBtn" type="button" aria-label="Menü öffnen" aria-expanded="false" aria-controls="menuFrame">
@@ -518,12 +518,12 @@
   // → Projekteinstellungen → "Meine Apps" → Web-App → "SDK-Setup und Konfiguration" →
   // "Config"). Siehe Einrichtungsanleitung für die genauen Schritte.
   var firebaseConfig = {
-    apiKey: "AIzaSyD-SeBi1NHkm7fyJTNTdSpFFSc89enk9gU",
-    authDomain: "leistungskompass-vs-andorf.firebaseapp.com",
-    projectId: "leistungskompass-vs-andorf",
-    storageBucket: "leistungskompass-vs-andorf.firebasestorage.app",
-    messagingSenderId: "521994417751",
-    appId: "1:521994417751:web:1d5d35b2f1aaa333bb5512"
+    apiKey: "DEIN_API_KEY",
+    authDomain: "DEIN_PROJEKT.firebaseapp.com",
+    projectId: "DEIN_PROJEKT",
+    storageBucket: "DEIN_PROJEKT.appspot.com",
+    messagingSenderId: "DEINE_SENDER_ID",
+    appId: "DEINE_APP_ID"
   };
   firebase.initializeApp(firebaseConfig);
   // Solange firebaseConfig noch die Platzhalterwerte enthält, wird kein Anmeldeversuch
@@ -732,6 +732,7 @@
   /* ============================= state ============================= */
   var state = {
     db: null, downloads: null, dbAvailable: null,
+    currentUser: null, // "anna" (Standard) oder "testuser" — siehe dbScopePrefix()/Login
     view: "dashboard",
     dashTab: "klasse",
     classes: [],
@@ -921,11 +922,39 @@
   }
 
   /* ============================= db plumbing ============================= */
-  function classesRef(){ return state.db.collection("classes"); }
-  function studentsRef(classId){ return state.db.collection("classes/"+classId+"/students"); }
-  function gradesRef(classId){ return state.db.collection("classes/"+classId+"/grades"); }
-  function finalGradesRef(classId){ return state.db.collection("classes/"+classId+"/finalGrades"); }
-  function settingsDoc(){ return state.db.doc("settings/global"); }
+  // Jeder angemeldete Firebase-Benutzer (siehe usernameToEmail()/onAuthStateChanged weiter
+  // unten bei "Login") hat seine eigenen, vollständig getrennten Daten: der Benutzer "anna"
+  // bleibt bewusst auf den ursprünglichen, unpräfigierten Pfaden (kein Umzug bestehender
+  // echter Daten nötig), jeder weitere Benutzer (z.B. "testuser") bekommt einen eigenen
+  // Namensraum "users/<benutzer>/…". Dadurch haben Änderungen eines Benutzers (Klassen,
+  // Schüler:innen, Noten, Einstellungen, Fächergewichtsvorlagen, …) niemals Auswirkungen auf
+  // die Daten eines anderen Benutzers.
+  function dbScopePrefix(){
+    return (state.currentUser && state.currentUser!=="anna") ? ("users/"+state.currentUser+"/") : "";
+  }
+  function classesRef(){ return state.db.collection(dbScopePrefix()+"classes"); }
+  function studentsRef(classId){ return state.db.collection(dbScopePrefix()+"classes/"+classId+"/students"); }
+  function gradesRef(classId){ return state.db.collection(dbScopePrefix()+"classes/"+classId+"/grades"); }
+  function finalGradesRef(classId){ return state.db.collection(dbScopePrefix()+"classes/"+classId+"/finalGrades"); }
+  function settingsDoc(){ return state.db.doc(dbScopePrefix()+"settings/global"); }
+
+  // Liefert bei "Missing or insufficient permissions"-Fehlern eine Diagnosezeile, die die
+  // tatsächlich bei Firebase hinterlegte Anmelde-E-Mail und den erwarteten Datenpfad zeigt —
+  // damit lässt sich ein Tippfehler bei der E-Mail-Adresse oder ein falscher/nicht
+  // veröffentlichter Sicherheitsregel-Eintrag direkt erkennen, ohne die Konsole öffnen zu müssen.
+  function permissionDebugInfo(){
+    try {
+      var u = firebase.auth().currentUser;
+      var authEmail = u ? u.email : "(nicht angemeldet)";
+      var expectedEmail = usernameToEmail(state.currentUser || "?");
+      var path = dbScopePrefix() + "classes";
+      return "\n\nDiagnose: Angemeldet bei Firebase als \"" + authEmail + "\". "
+        + "Erwartet für App-Benutzer \"" + (state.currentUser||"?") + "\" wird \"" + expectedEmail + "\". "
+        + (authEmail && authEmail.toLowerCase()===expectedEmail.toLowerCase()
+            ? "E-Mail stimmt überein — bitte die veröffentlichten Firestore-Regeln prüfen (Firebase Console → Firestore Database → Regeln → Publish), Ziel-Pfad: \"" + path + "\"."
+            : "⚠ E-Mail stimmt NICHT überein — im Firebase Console unter Authentication prüfen, mit welcher exakten E-Mail dieses Konto angelegt wurde.");
+    } catch(e){ return ""; }
+  }
 
   function snapToArr(snap){
     return snap.docs.map(function(d){ return Object.assign({}, d.data()||{}, {id:d.id}); });
@@ -2964,10 +2993,10 @@
           state.newClass = null;
           if(ref && ref.id) selectClass(ref.id); else render();
         }).catch(function(err){
-          showGlobalError("Klasse konnte nicht angelegt werden — " + (err && (err.message||err.code) ? (err.message||err.code) : err));
+          showGlobalError("Klasse konnte nicht angelegt werden — " + (err && (err.message||err.code) ? (err.message||err.code) : err) + permissionDebugInfo());
         });
       } catch(err){
-        showGlobalError("Klasse konnte nicht angelegt werden — " + (err && err.message ? err.message : err));
+        showGlobalError("Klasse konnte nicht angelegt werden — " + (err && err.message ? err.message : err) + permissionDebugInfo());
       }
     };
 
@@ -3634,11 +3663,22 @@
   function usernameToEmail(u){
     return String(u||"").trim().toLowerCase()+"@leistungskompass.local";
   }
-  function showApp(){
+  // Leitet aus der internen E-Mail-Adresse des angemeldeten Firebase-Kontos wieder den
+  // "Benutzernamen" ab (Teil vor dem @) — das ist der Schlüssel, mit dem dbScopePrefix()
+  // weiter oben die Daten der Benutzer voneinander trennt.
+  function usernameFromFirebaseUser(user){
+    var email = (user && user.email) || "";
+    return email.split("@")[0].toLowerCase();
+  }
+  var USER_DISPLAY_NAMES = { "anna": "Anna", "testuser": "Testuser" };
+  function showApp(user){
+    state.currentUser = usernameFromFirebaseUser(user);
     var overlay = document.getElementById("loginOverlay");
     var app = document.getElementById("app");
     if(overlay) overlay.hidden = true;
     if(app) app.hidden = false;
+    var brandSub = document.getElementById("brandSubLabel");
+    if(brandSub) brandSub.textContent = "Volksschule || " + (USER_DISPLAY_NAMES[state.currentUser] || state.currentUser);
     boot();
   }
   function showLogin(){
@@ -3681,7 +3721,7 @@
     // onAuthStateChanged feuert einmal beim Laden (mit dem evtl. noch bestehenden
     // Anmeldestatus aus einer vorherigen Sitzung) und danach bei jeder An-/Abmeldung.
     firebase.auth().onAuthStateChanged(function(user){
-      if(user) showApp(); else showLogin();
+      if(user) showApp(user); else showLogin();
     });
   }
 })();
